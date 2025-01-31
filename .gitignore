@@ -1,0 +1,7 @@
+/target
+/.vscode
+
+*.mp4
+*.ppm
+*.wav
+*.png
