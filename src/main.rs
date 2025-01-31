@@ -24,7 +24,6 @@ impl CLIRenderer {
     }
 
     fn setup_console(&self) {
-        print!("{}", r"\e[?25l");
         print!("{}", "\u{001b}[2J");
     }
 
