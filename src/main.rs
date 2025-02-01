@@ -1,4 +1,4 @@
-use core::time;
+use core::{str, time};
 use std::io::{BufReader, Result};
 use std::process::{Child, ChildStdout};
 
@@ -45,7 +45,7 @@ impl CLIRenderer {
         }
 
         print!("{}", "\u{001b}[H");
-        print!("\r{}", core::str::from_utf8(v.as_slice()).unwrap());
+        print!("\r{}", str::from_utf8(v.as_slice()).unwrap());
     }
 }
 
@@ -68,13 +68,24 @@ impl FfmpegReader {
             .raw_arg("-f image2pipe")
             .raw_arg("-pix_fmt rgb24")
             .raw_arg("-vcodec ppm")
+            .raw_arg("-nostats")
+            .raw_arg("-hide_banner")
             .raw_arg("-");
 
         let mut ffmpeg = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
         let stdout = ffmpeg.stdout.take().unwrap();
 
-        // TODO
+        // TODO: implement stderr reading
+        // let mut stderr = ffmpeg.stderr.take().unwrap();
+        // let mut errs = vec![];
+        // let err_bytes_read = stderr.read_to_end(&mut errs).unwrap();
+
+        // if err_bytes_read != 0 {
+        //     panic!("FFMPEG error: {}", str::from_utf8(&mut errs).unwrap());
+        // }
+        
+        // TODO: ugly
         let ppm_header_size = 9 + w.to_string().len() + h.to_string().len();
         let frame_buffer_alloc_size = ppm_header_size + (w * h * 3) as usize;
 
@@ -124,17 +135,8 @@ impl FfmpegReader {
 }
 
 fn pixel_to_ascii(r: u8, g: u8, b: u8) -> u8 {
-    let b = rgb_to_brightness(r, g, b);
-    let c = brightness_to_ascii(b);
-    c
-}
-
-fn rgb_to_brightness(r: u8, g: u8, b: u8) -> f32 {
-    0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32
-}
-
-fn brightness_to_ascii(b: f32) -> u8 {
-    let i = ((CHARS_LIGHT.len() - 1) as f32 * b / 255.) as usize;
+    let brightness = 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32;
+    let i = ((CHARS_LIGHT.len() - 1) as f32 * brightness / 255.) as usize;
     let res = CHARS_LIGHT[i];
     res
 }
@@ -164,10 +166,24 @@ fn video_to_ascii(file_path: &str) -> Result<()> {
     Ok(())
 }
 
-const FILE_PATH: &'static str = "C:/Users/anton/dev/rust/ascii/vid.mp4";
-
+// TODO: test on linux
+// TODO: read ffmpeg stderr
+// TODO: move modules to separate files
 fn main() {
-    if let Err(err) = video_to_ascii(&FILE_PATH) {
+    let args: Vec<_> = std::env::args().collect();
+
+    if args.len() != 2 {
+        print_usage();
+        return;
+    }
+
+    let file_path = &args[1];
+
+    if let Err(err) = video_to_ascii(&file_path) {
         println!("{}", err);
     };
+}
+
+fn print_usage() {
+    println!("Usage: render [file-path]");
 }
