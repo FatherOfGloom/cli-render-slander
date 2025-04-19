@@ -11,27 +11,39 @@ use std::{
 
 use terminal_size::{terminal_size, Height, Width};
 
-static CHARS_LIGHT: &'static [u8] = b"  .:!+*e$@8";
+static CHARS_LIGHT: &'static[u8] = b"  .:;=!+*#$8@";
 
 struct CLIRenderer {
     w: usize,
     h: usize,
+    lazy_buf: Option<Vec<u8>>
 }
 
 impl CLIRenderer {
     fn new(w: usize, h: usize) -> Self {
-        CLIRenderer { w: w, h: h }
+        CLIRenderer { w, h, lazy_buf: None }
     }
 
     fn setup_console(&self) {
         print!("{}", "\u{001b}[2J");
     }
 
-    fn render_ppm(&self, buf: &[u8]) {
+    fn get_buf(&mut self, size: usize) -> &mut [u8] {
+        if self.lazy_buf.is_none() {
+            self.lazy_buf = Some(vec![0u8; size]);
+        }
+
+        self.lazy_buf.as_mut().unwrap().as_mut_slice()
+    }
+
+    fn render_ppm(&mut self, buf: &[u8]) {
         let w = self.w;
         let h = self.h;
 
-        let mut v: Vec<u8> = Vec::new();
+        // No need for extra allocations
+        let render_buf = self.get_buf(w * h);
+
+        let mut i = 0;
 
         for y in 0..h {
             for x in (0..(w * 3)).step_by(3) {
@@ -40,12 +52,15 @@ impl CLIRenderer {
                 let g = buf[idx + 1];
                 let b = buf[idx + 2];
                 let ascii = pixel_to_ascii(r, g, b);
-                v.push(ascii);
+
+                // I don't give a fuck if it panics, men shouldn't panic
+                render_buf[i] = ascii;
+                i += 1;
             }
         }
 
         print!("{}", "\u{001b}[H");
-        print!("\r{}", str::from_utf8(v.as_slice()).unwrap());
+        print!("\r{}", str::from_utf8(render_buf).unwrap());
     }
 }
 
@@ -87,13 +102,13 @@ impl FfmpegReader {
         
         // TODO: ugly
         let ppm_header_size = 9 + w.to_string().len() + h.to_string().len();
-        let frame_buffer_alloc_size = ppm_header_size + (w * h * 3) as usize;
+        let frame_size = ppm_header_size + w * h * 3;
 
         Ok(FfmpegReader {
             pipe: Some(ffmpeg),
             buf_reader: Some(BufReader::new(stdout)),
             frame_buffer: vec![],
-            frame_size: frame_buffer_alloc_size,
+            frame_size: frame_size,
             frame_header_size: ppm_header_size,
         })
     }
@@ -148,7 +163,7 @@ fn video_to_ascii(file_path: &str) -> Result<()> {
     };
 
     let mut ffmpeg_reader = FfmpegReader::new(file_path, terminal_w, terminal_h)?;
-    let renderer = CLIRenderer::new(terminal_w, terminal_h);
+    let mut renderer = CLIRenderer::new(terminal_w, terminal_h);
     let frame_delay = time::Duration::from_millis(20);
 
     renderer.setup_console();
