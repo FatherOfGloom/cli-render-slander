@@ -28,6 +28,13 @@ impl CLIRenderer {
         print!("{}", "\u{001b}[2J");
     }
 
+    fn pixel_to_ascii(r: u8, g: u8, b: u8) -> u8 {
+        let brightness = 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32;
+        let i = ((CHARS_LIGHT.len() - 1) as f32 * brightness / 255.) as usize;
+        let res = CHARS_LIGHT[i];
+        res
+    }
+
     fn get_buf(&mut self, size: usize) -> &mut [u8] {
         if self.lazy_buf.is_none() {
             self.lazy_buf = Some(vec![0u8; size]);
@@ -48,10 +55,8 @@ impl CLIRenderer {
         for y in 0..h {
             for x in (0..(w * 3)).step_by(3) {
                 let idx: usize = (y * (w * 3) + x).into();
-                let r = buf[idx];
-                let g = buf[idx + 1];
-                let b = buf[idx + 2];
-                let ascii = pixel_to_ascii(r, g, b);
+                let (r, g, b) = (buf[idx], buf[idx + 1], buf[idx + 2]);
+                let ascii = Self::pixel_to_ascii(r, g, b);
 
                 // I don't give a fuck if it panics, men shouldn't panic
                 render_buf[i] = ascii;
@@ -60,7 +65,10 @@ impl CLIRenderer {
         }
 
         print!("{}", "\u{001b}[H");
-        print!("\r{}", str::from_utf8(render_buf).unwrap());
+
+        unsafe {
+            print!("\r{}", str::from_utf8_unchecked(render_buf));
+        }
     }
 }
 
@@ -147,13 +155,6 @@ impl FfmpegReader {
         pipe.wait()?;
         Ok(())
     }
-}
-
-fn pixel_to_ascii(r: u8, g: u8, b: u8) -> u8 {
-    let brightness = 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32;
-    let i = ((CHARS_LIGHT.len() - 1) as f32 * brightness / 255.) as usize;
-    let res = CHARS_LIGHT[i];
-    res
 }
 
 fn video_to_ascii(file_path: &str) -> Result<()> {
