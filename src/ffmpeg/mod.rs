@@ -42,10 +42,10 @@ impl FfmpegReader {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 if let Ok(line) = line {
-                    if line.contains("Error") {
+                    // if line.contains("Error") {
                         let _ = error_tx.send(line);
                         break;
-                    }
+                    // }
                 }
             }
         });
