@@ -42,16 +42,13 @@ impl FfmpegReader {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 if let Ok(line) = line {
-                    // if line.contains("Error") {
-                        let _ = error_tx.send(line);
-                        break;
-                    // }
+                    let _ = error_tx.send(line);
+                    break;
                 }
             }
         });
         
-        // TODO: ugly
-        let ppm_header_size = 9 + w.to_string().len() + h.to_string().len();
+        let ppm_header_size = 9 + Self::get_digit_count(w as i64) + Self::get_digit_count(h as i64);
         let frame_size = ppm_header_size + w * h * 3;
 
         Ok(FfmpegReader {
@@ -63,6 +60,10 @@ impl FfmpegReader {
             err_rx: error_rx,
             err_thread_handle: Some(hnd)
         })
+    }
+
+    fn get_digit_count(num: i64) -> usize {
+        if num == 0 { 1 } else { (num.abs().ilog10() + 1) as usize }
     }
 
     pub fn get_frame_buffer_ppm(&mut self) -> Option<&[u8]> {
