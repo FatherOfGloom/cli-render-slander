@@ -1,6 +1,7 @@
-use std::io::{BufReader, Read, Result};
-use std::os::windows::process::CommandExt;
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, ChildStdout, Command, Stdio};
+use std::sync::mpsc::Receiver;
+use std::thread::JoinHandle;
 
 pub struct FfmpegReader {
     pipe: Option<Child>,
@@ -8,35 +9,46 @@ pub struct FfmpegReader {
     frame_buffer: Vec<u8>,
     frame_size: usize,
     frame_header_size: usize,
+    err_rx: Receiver<String>,
+    err_thread_handle: Option<JoinHandle<()>>
 }
 
 impl FfmpegReader {
-    pub fn new(video_file_path: &str, w: usize, h: usize) -> Result<Self> {
+    pub fn new(video_file_path: &str, w: usize, h: usize) -> Result<Self, std::io::Error> {
         let mut cmd = Command::new("ffmpeg");
 
-        // using raw_arg since arg() function passes args to ffmpeg with quotation marks on windows
-        // https://github.com/rust-lang/rust/issues/92939
-        cmd.raw_arg(&format!("-i {}", video_file_path))
-            .raw_arg(&format!("-s {}x{}", w, h))
-            .raw_arg("-f image2pipe")
-            .raw_arg("-pix_fmt rgb24")
-            .raw_arg("-vcodec ppm")
-            .raw_arg("-nostats")
-            .raw_arg("-hide_banner")
-            .raw_arg("-");
+        cmd.arg("-i")
+            .arg(video_file_path)
+            .arg("-s")
+            .arg(&format!("{}x{}", w, h))
+            .arg("-f")
+            .arg("image2pipe")
+            .arg("-pix_fmt")
+            .arg("rgb24")
+            .arg("-vcodec")
+            .arg("ppm")
+            .arg("-nostats")
+            .arg("-hide_banner")
+            .arg("-");
 
         let mut ffmpeg = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
         let stdout = ffmpeg.stdout.take().unwrap();
+        let stderr = ffmpeg.stderr.take().unwrap();
 
-        // TODO: implement stderr reading
-        // let mut stderr = ffmpeg.stderr.take().unwrap();
-        // let mut errs = vec![];
-        // let err_bytes_read = stderr.read_to_end(&mut errs).unwrap();
+        let (error_tx, error_rx) = std::sync::mpsc::channel();
 
-        // if err_bytes_read != 0 {
-        //     panic!("FFMPEG error: {}", str::from_utf8(&mut errs).unwrap());
-        // }
+        let hnd = std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    if line.contains("Error") {
+                        let _ = error_tx.send(line);
+                        break;
+                    }
+                }
+            }
+        });
         
         // TODO: ugly
         let ppm_header_size = 9 + w.to_string().len() + h.to_string().len();
@@ -48,6 +60,8 @@ impl FfmpegReader {
             frame_buffer: vec![],
             frame_size: frame_size,
             frame_header_size: ppm_header_size,
+            err_rx: error_rx,
+            err_thread_handle: Some(hnd)
         })
     }
 
@@ -76,13 +90,23 @@ impl FfmpegReader {
         Some(&b[self.frame_header_size..])
     }
 
-    pub fn wait_for_child(&mut self) -> Result<()> {
+    pub fn wait_for_error_thread(&mut self) -> Result<(), String> {
         let pipe = self
             .pipe
             .as_mut()
-            .expect("Cannot wait for uninitialized pipe");
+            .expect("Cannot wait for uninitialized pipe.");
 
-        pipe.wait()?;
+        let exit_status = pipe.wait().map_err(|e| format!("Wait failed {}", e))?;
+
+        let hnd = self.err_thread_handle.take().unwrap();
+        
+        hnd.join().map_err(|_| String::from("Couldn't join error thread."))?;
+
+        if !exit_status.success() {
+            let err = self.err_rx.try_recv().unwrap_or_default();
+            return Err(format!("FFMPEG Error ({}): {}", exit_status, err));
+        }
+        
         Ok(())
     }
 }

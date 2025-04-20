@@ -1,5 +1,4 @@
-// TODO: test on linux
-// TODO: read ffmpeg stderr
+// TODO: map fps
 fn main() {
     cli_render_slander::run();
 }

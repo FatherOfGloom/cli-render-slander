@@ -16,10 +16,6 @@ impl CLIRenderer {
         CLIRenderer { w, h, lazy_buf: None }
     }
 
-    fn setup_console(&self) {
-        print!("{}", "\u{001b}[2J");
-    }
-
     fn pixel_to_ascii(r: u8, g: u8, b: u8) -> u8 {
         let brightness = 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32;
         let i = ((CHARS_LIGHT.len() - 1) as f32 * brightness / 255.) as usize;
@@ -74,8 +70,6 @@ pub fn video_to_ascii(file_path: &str) -> Result<()> {
     let mut renderer = CLIRenderer::new(terminal_w, terminal_h);
     let frame_delay = time::Duration::from_millis(20);
 
-    renderer.setup_console();
-
     loop {
         match ffmpeg_reader.get_frame_buffer_ppm() {
             Some(b) => renderer.render_ppm(b),
@@ -84,7 +78,9 @@ pub fn video_to_ascii(file_path: &str) -> Result<()> {
         thread::sleep(frame_delay);
     }
 
-    ffmpeg_reader.wait_for_child()?;
+    if let Err(err) = ffmpeg_reader.wait_for_error_thread() {
+        println!("{}", err);
+    };
 
     Ok(())
 }
